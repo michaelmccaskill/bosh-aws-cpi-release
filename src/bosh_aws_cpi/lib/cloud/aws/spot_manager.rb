@@ -1,5 +1,6 @@
 require 'common/common'
 require 'time'
+require 'securerandom'
 
 module Bosh::AwsCloud
   class SpotManager
@@ -11,7 +12,7 @@ module Bosh::AwsCloud
       @logger = Bosh::Clouds::Config.logger
     end
 
-    def create(launch_specification, spot_bid_price)
+    def create(launch_specification, spot_bid_price, spot_credit_specification)
       spot_request_spec = {
         spot_price: "#{spot_bid_price}",
         instance_count: 1,
@@ -36,7 +37,16 @@ module Bosh::AwsCloud
         raise Bosh::Clouds::VMCreationFailed.new(false), message
       end
 
-      wait_for_spot_instance
+      instance = wait_for_spot_instance
+
+      if spot_credit_specification
+        actual_credit_specification = spot_credit_specification(instance.id)
+        if actual_credit_specification != spot_credit_specification
+          update_spot_instance_credit_specification(instance.id, spot_credit_specification)
+        end
+      end
+
+      instance
     end
 
     private
@@ -96,6 +106,34 @@ module Bosh::AwsCloud
         spot_instance_request_ids: spot_instance_request_ids
       )
       @logger.warn("Spot cancel request returned: #{cancel_response.inspect}")
+    end
+
+    def spot_instance_credit_specification(instance_id)
+      @logger.debug("Checking credit specificiont of spot instance #{instance_id}")
+      request_params = {
+        instance_ids: [ instance_id ]
+      }
+      resp = @ec2.client.describe_instance_credit_specifications(request_params)
+      spec = resp.instance_credit_specifications[0].cpu_credits
+      @logger.debug("Spot instance credit specification for spot instance #{instance_id}: #{spec}")
+      spec
+    end
+
+    def update_spot_instance_credit_specification(instanct_id, spot_credit_specification)
+      @logger.debug("Updating spot instance #{instance_id} credit specifiction to #{spot_credit_specification}")
+      request_params = {
+        client_token: SecureRandom.uuid,
+        instance_credit_specifications: [
+          {
+            instance_id: instance_id,
+            cpu_credits: spot_credit_specification
+          }
+        ]
+      }
+      resp = @ec2.client.modify_instance_credit_specification(request_params)
+      if not resp.unsuccessful_instance_credit_specifications.empty?
+        fail_spot_creation("Updating spot instance #{instance_id} credit specifiction failed: #{resp.unsuccessful_instance_credit_specifications.inspect}")
+      end
     end
   end
 end

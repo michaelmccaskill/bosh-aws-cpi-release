@@ -102,17 +102,17 @@ module Bosh::AwsCloud
       @param_mapper.instance_params
     end
 
-    def create_aws_spot_instance(launch_specification, spot_bid_price)
+    def create_aws_spot_instance(launch_specification, spot_bid_price, spot_credit_specification)
       @logger.info('Launching spot instance...')
       spot_manager = Bosh::AwsCloud::SpotManager.new(@ec2)
 
-      spot_manager.create(launch_specification, spot_bid_price)
+      spot_manager.create(launch_specification, spot_bid_price, spot_credit_specification)
     end
 
     def create_aws_instance(instance_params, vm_cloud_props)
       if vm_cloud_props.spot_bid_price
         begin
-          return create_aws_spot_instance(instance_params, vm_cloud_props.spot_bid_price)
+          return create_aws_spot_instance(instance_params, vm_cloud_props.spot_bid_price, vm_cloud_props.spot_credit_specification)
         rescue Bosh::Clouds::VMCreationFailed => e
           if vm_cloud_props.spot_ondemand_fallback
             @logger.info("Spot instance creation failed with this message: #{e.message}; will create ondemand instance because `spot_ondemand_fallback` is set.")
